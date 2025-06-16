@@ -20,7 +20,6 @@ namespace Server
     class Program
     {
         static List<Player> players = new List<Player>();
-        static int currentPlayerIndex = 0;
         static TcpListener listener;
         static List<string> deck = new List<string>();
         static List<string> dealerHand = new List<string>();
@@ -49,51 +48,61 @@ namespace Server
             Broadcast("Tous les joueurs sont connectés. Le jeu commence !");
             InitializeDeck();
             DealInitialCards();
-            BroadcastGameState();
+            BroadcastGameState(hideDealerSecondCard: true);
 
-            while (true)
+            // Chaque joueur joue entièrement son tour à tour
+            foreach (var player in players)
             {
-                Player currentPlayer = players[currentPlayerIndex];
-                if (currentPlayer.IsBusted || currentPlayer.HasStood)
+                SendMessage(player, "C'est votre tour.");
+                while (!player.IsBusted && !player.HasStood)
                 {
-                    NextTurn();
-                    continue;
-                }
+                    BroadcastGameState(hideDealerSecondCard: true);
 
-                SendMessage(currentPlayer, "Votre tour. Tapez 'hit' pour piocher une carte ou 'stand' pour rester.");
-                string action = ReadMessage(currentPlayer);
-                if (action == "hit")
-                {
-                    string card = DrawCard();
-                    currentPlayer.Hand.Add(card);
-                    if (CalculateHandValue(currentPlayer.Hand) > 21)
+                    int handValue = CalculateHandValue(player.Hand);
+                    if (handValue == 21)
                     {
-                        currentPlayer.IsBusted = true;
-                        SendMessage(currentPlayer, $"Vous avez tiré {card} et busted!");
+                        SendMessage(player, "Blackjack ! Vous avez atteint 21, votre tour est terminé.");
+                        player.HasStood = true;
+                        break; // Fin du tour pour ce joueur
                     }
-                    else
+
+                    SendMessage(player, "Tapez 'hit' pour piocher une carte ou 'stand' pour rester.");
+                    string action = ReadMessage(player);
+
+                    if (action == "hit")
                     {
-                        SendMessage(currentPlayer, $"Vous avez tiré {card}.");
+                        string card = DrawCard();
+                        player.Hand.Add(card);
+                        handValue = CalculateHandValue(player.Hand);
+                        if (handValue > 21)
+                        {
+                            player.IsBusted = true;
+                            SendMessage(player, $"Vous avez tiré {card} et busté !");
+                        }
+                        else if (handValue == 21)
+                        {
+                            SendMessage(player, $"Vous avez tiré {card} et atteint 21 ! Votre tour est terminé.");
+                            player.HasStood = true;
+                        }
+                        else
+                        {
+                            SendMessage(player, $"Vous avez tiré {card}.");
+                        }
+                    }
+                    else if (action == "stand")
+                    {
+                        player.HasStood = true;
+                        SendMessage(player, "Vous avez choisi de rester.");
                     }
                 }
-                else if (action == "stand")
-                {
-                    currentPlayer.HasStood = true;
-                    SendMessage(currentPlayer, "Vous avez choisi de rester.");
-                }
-
-                BroadcastGameState();
-
-                if (IsGameOver())
-                {
-                    DealerTurn();
-                    BroadcastGameState();
-                    EndGame();
-                    break;
-                }
-
-                NextTurn();
             }
+
+            // Tous les joueurs ont fini => tour du dealer
+            Broadcast("Tous les joueurs ont fini leur tour. Tour du dealer !");
+            BroadcastGameState(hideDealerSecondCard: false);
+            DealerTurn();
+            BroadcastGameState(hideDealerSecondCard: false);
+            EndGame();
         }
 
         static void InitializeDeck()
@@ -165,17 +174,27 @@ namespace Server
                 SendMessage(player, message);
         }
 
-        static void BroadcastGameState()
+        static void BroadcastGameState(bool hideDealerSecondCard)
         {
             foreach (var player in players)
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Game State:");
+
                 foreach (var p in players)
                 {
                     sb.AppendLine($"{p.Name}: {string.Join(", ", p.Hand)} (Value: {CalculateHandValue(p.Hand)})");
                 }
-                sb.AppendLine($"Dealer: {string.Join(", ", dealerHand)} (Value: {CalculateHandValue(dealerHand)})");
+
+                if (hideDealerSecondCard && dealerHand.Count >= 2)
+                {
+                    sb.AppendLine($"Dealer: {dealerHand[0]}, XX");
+                }
+                else
+                {
+                    sb.AppendLine($"Dealer: {string.Join(", ", dealerHand)} (Value: {CalculateHandValue(dealerHand)})");
+                }
+
                 SendMessage(player, sb.ToString());
             }
         }
@@ -193,24 +212,14 @@ namespace Server
             return Encoding.UTF8.GetString(buffer, 0, byteCount).Trim().ToLower();
         }
 
-        static void NextTurn()
-        {
-            currentPlayerIndex = (currentPlayerIndex + 1) % players.Count;
-        }
-
-        static bool IsGameOver()
-        {
-            return players.TrueForAll(p => p.HasStood || p.IsBusted);
-        }
-
         static void DealerTurn()
         {
-            Broadcast("Dealer's turn.");
+            Broadcast("Dealer's turn.\n");
             while (CalculateHandValue(dealerHand) < 17)
             {
                 string card = DrawCard();
                 dealerHand.Add(card);
-                Broadcast($"Dealer tire {card}.");
+                Broadcast($"Dealer tire {card}.\n");
                 Thread.Sleep(1000);
             }
         }
@@ -233,18 +242,17 @@ namespace Server
                 }
                 else if (playerValue > dealerValue)
                 {
-                    SendMessage(p, $"Vous avez gagné ! Votre {playerValue} bats celui du dealer {dealerValue}.");
+                    SendMessage(p, $"Vous avez gagné ! Votre {playerValue} bat celui du dealer {dealerValue}.");
                 }
                 else if (playerValue == dealerValue)
                 {
-                    SendMessage(p, $"Egalité! Votre {playerValue} est égale à celui du dealer {dealerValue}.");
+                    SendMessage(p, $"Égalité ! Votre {playerValue} est égale à celui du dealer {dealerValue}.");
                 }
                 else
                 {
-                    SendMessage(p, $"Vous perdez. Le dealer {dealerValue} bats votre {playerValue}.");
+                    SendMessage(p, $"Vous perdez. Le dealer {dealerValue} bat votre {playerValue}.");
                 }
             }
-
         }
     }
 }
