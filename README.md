@@ -55,17 +55,17 @@ Il utilise la programmation socket pour permettre à plusieurs joueurs de se con
 - Pour compiler via CLI :
 
 ```bash
-cd Serveur
+cd ./Server
 dotnet new console
-cd ../Client
+cd ./Client
 dotnet new console
 ```
 Oubliez pas de re-modifier le fichier Program.cs qui est généré automatiquement 
 
 - Ensuite vous pouvez lancez un serveur et deux client
 ```bash
-cd Serveur
+cd ./Serveur
 dotnet run
-cd Client
+cd ./Client
 dotnet run
 ```
